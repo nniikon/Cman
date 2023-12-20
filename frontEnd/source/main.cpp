@@ -11,31 +11,68 @@ const char* INPUT_FILE_NAME = "source.cmk";
 
 int main()
 {
-    FILE* logFile = logOpenFile(LOG_FILE_NAME);
-    if (!logFile)
-        return -1;
-
+    FrontEndError error = FE_ERR_NO;
+    FILE* logFile = nullptr;
+    FILE* srcFile = nullptr;
     FrontEnd fe = {};
+    char* srcInput = nullptr;
+    Stack tokens = {};
+    Tree syntaxTree = {};
+
+    logFile = logOpenFile(LOG_FILE_NAME);
+    if (!logFile)
+    {
+        error = FE_ERR_BAD_FOPEN;
+        goto ReturnBadLogFile;
+    }
+
+    srcFile = fopen(INPUT_FILE_NAME, "r");
+    if (!srcFile)
+    {
+        error = FE_ERR_BAD_FOPEN;
+        goto ReturnBadSrcFile;
+    }
 
     frontEndSetLogFile(logFile);
 
     frontEndCtor(&fe, INPUT_FILE_NAME);
     if (fe.error)
-        return fe.error;
+    {
+        error = fe.error;
+        goto ReturnBadCtor;
+    }
 
-    char* input = (char*) ftbPutFileToBuffer(nullptr, fopen(INPUT_FILE_NAME, "r"));
+    srcInput = (char*) ftbPutFileToBuffer(nullptr, srcFile);
+    if (!srcInput)
+    {
+        error = FE_ERR_BAD_FTB;
+        goto ReturnBadFtb;
+    }
 
-    Stack tokens = parseStrToTokens(&fe, input);
+    tokens = parseStrToTokens(&fe, srcInput);
+    if (fe.error)
+    {
+        error = fe.error;
+        goto ReturnFreeAll;
+    }
 
-    Tree syntaxTree = parseTokensToSyntaxTree(&fe, &tokens);
+    syntaxTree = parseTokensToSyntaxTree(&fe, &tokens);
+    if (fe.error)
+    {
+        error = fe.error;
+        goto ReturnFreeAll;
+    }
 
     printSyntaxErrors(&fe, &tokens);
 
-    stackDtor(&tokens);
-    treeDtor(&syntaxTree);
-    free(input);
-
+    ReturnFreeAll:
+    free(srcInput);
+    ReturnBadFtb:
     frontEndDtor(&fe);
-    if (fe.error)
-        return fe.error;
+    ReturnBadCtor:
+    fclose(srcFile);
+    ReturnBadSrcFile:
+    fclose(logFile);
+    ReturnBadLogFile:
+    return error;
 }
