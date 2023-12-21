@@ -3,3 +3,4 @@ build/
 *.cmk
 *.html
 .vscode
+*.tre
