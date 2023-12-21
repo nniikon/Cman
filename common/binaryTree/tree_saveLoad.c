@@ -212,6 +212,6 @@ Tree treeLoadFromFile(FILE* file, FrontEnd* fe, TreeError* err)
     }
     char* const oldStr = str;
     tree.rootBranch = treeLoadNodeFromFile_recursive(&str, &tree, err, fe);
-    free(oldStr);
+    // FIXME
     return tree;
 }

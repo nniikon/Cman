@@ -587,9 +587,11 @@ static bool tryIndentifierToken(FrontEnd* fe, const char* str, int* size, Token*
         }                                                                          \
     } while(0)
 
+static TreeNode* getAll                 (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
+static TreeNode* getGlobalChunk         (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
 static TreeNode* getExpression          (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos, int order);
 static TreeNode* getFunction            (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
-static TreeNode* getBracketsExpression  (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
+static TreeNode* getExpressionUnit      (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
 static TreeNode* getStatement           (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
 static TreeNode* getConditionStatement  (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
 static TreeNode* getStatementList       (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
@@ -599,6 +601,7 @@ static TreeNode* getDeclaration         (FrontEnd* fe, Tree* tree, Stack* tokens
 static TreeNode* getDeclarationStatement(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
 static TreeNode* getSpecifier           (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
 static TreeNode* getIdentifier          (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
+static TreeNode* getReturnStatement     (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
 static bool      getWhiteSpace          (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
 
 
@@ -656,12 +659,78 @@ Tree parseTokensToSyntaxTree(FrontEnd* fe, Stack* tokensStk)
     }
 
     unsigned int pos = 0;
-    syntaxTree.rootBranch = getFunction(fe, &syntaxTree, tokensStk, &pos);
+    syntaxTree.rootBranch = getAll(fe, &syntaxTree, tokensStk, &pos);
 
     treeGraphDump(&syntaxTree);
 
     return syntaxTree;
 }
+
+
+static TreeNode* getAll(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
+{
+    FE_LOG_FUNC_START();
+    assert(fe);
+    assert(tree);
+    assert(pos); 
+
+    TreeNode* node = getGlobalChunk(fe, tree, tokensStk, pos);
+    if (!node)
+        return nullptr;
+
+    TreeNode* topNode = node;
+
+    while (*pos < tokensStk->size)
+    {
+        node->rightBranch = getGlobalChunk(fe, tree, tokensStk, pos);
+        if (node->rightBranch)
+        {
+            node = node->rightBranch;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    FE_LOG_FUNC_END();
+    return topNode;    
+}
+
+
+static TreeNode* getGlobalChunk(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
+{
+    FE_LOG_FUNC_START();
+    assert(fe);
+    assert(tree);
+    assert(pos);
+
+    TreeNode* node = nullptr;
+
+    node = getFunction(fe, tree, tokensStk, pos);
+    if (!node)
+    {
+        node = getDeclarationStatement(fe, tree, tokensStk, pos);
+    }
+    if (!node)
+    {
+        pushSyntaxError(*pos, SYNTAX_ERR_EXPECTED_SPECIFIER);
+    }
+    if (!node)
+    {
+        return nullptr;
+    }
+
+    node = treeCreateNode(tree, node, nullptr, nullptr, createSemicolonToken());
+    if (!node)
+    {
+        FE_LOG_SET_ERROR(FE_ERR_TREE);
+    }
+
+    return node;
+    FE_LOG_FUNC_END();
+}
+
 
 //                                +--------- I HATE THIS WS
 //                                V
@@ -673,10 +742,13 @@ static TreeNode* getFunction(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigne
     assert(tree);
     assert(pos);
 
+    unsigned int oldPos = *pos;
+
     TreeNode* nodeSpec = getSpecifier(fe, tree, tokensStk, pos);
     if (!nodeSpec)
     {
-        pushSyntaxError(*pos, SYNTAX_ERR_EXPECTED_SPECIFIER);
+        *pos = oldPos;
+        return nullptr;
     }
 
     getWhiteSpace(fe, tree, tokensStk, pos);
@@ -685,14 +757,16 @@ static TreeNode* getFunction(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigne
     nodeSpec->leftBranch = nodeIden;
     if (!nodeIden)
     {
-        pushSyntaxError(*pos, SYNTAX_ERR_EXPECTED_IDENTIFIER);
+        *pos = oldPos;
+        return nullptr;
     }
 
     getWhiteSpace(fe, tree, tokensStk, pos);
 
     if (tokenAt(*pos).type != TOKEN_OPERATION || operationToken(*pos).type != OPER_TYPE_LBR)
     {
-        pushSyntaxError(*pos, SYNTAX_ERR_LEFT_BRACKET_MISSING);
+        *pos = oldPos;
+        return nullptr;
     }
 
     (*pos)++;
@@ -731,6 +805,10 @@ static TreeNode* getIdentifier(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsig
     }
 
     TreeNode* node = treeCreateNode(tree, nullptr, nullptr, nullptr, createIdentifierToken(*pos));
+    if (!node)
+    {
+        FE_LOG_SET_ERROR(FE_ERR_TREE);
+    }
 
     FE_LOGF_COLOR(gray, "Found identifier %.*s at position %u\n", identifierToken(*pos).info.len,
                                                                   identifierToken(*pos).info.name, *pos);
@@ -751,14 +829,12 @@ static TreeNode* getSpecifier(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsign
     if (tokenAt(*pos).type != TOKEN_KEY_WORD)
     {
         LOGF_ERR(logFile, "Unable to recognize a specifier, current position: %u\n", *pos);
-        // FIXME_ERR_HANDLING: ...
         return nullptr;
     }
 
     if (keyWordToken(*pos).type != KEY_WORD_INT) // FIXME: add isSpecifier function
     {
         LOGF_ERR(logFile, "Unable to recognize a specifier, current position: %u\n", *pos);
-        // FIXME_ERR_HANDLING: ...
         return nullptr;
     }
 
@@ -808,7 +884,7 @@ static TreeNode* getExpression(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsig
     TreeNode* leftNode = nullptr;
 
     if (order == 1)
-        leftNode = getBracketsExpression(fe, tree, tokensStk, pos);
+        leftNode = getExpressionUnit(fe, tree, tokensStk, pos);
     else
         leftNode = getExpression(fe, tree, tokensStk, pos, order - 1);
 
@@ -828,11 +904,11 @@ static TreeNode* getExpression(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsig
         TreeNode* rightNode = nullptr;
 
         if (order == 1)
-            rightNode = getBracketsExpression(fe, tree, tokensStk, pos);
+            rightNode = getExpressionUnit(fe, tree, tokensStk, pos);
         else
             rightNode = getExpression(fe, tree, tokensStk, pos, order - 1);
 
-        if (!(operationToken(*pos).arity & OPER_UNARY))
+        if (*pos < tokensStk->size && !(operationToken(*pos).arity & OPER_UNARY))
         {
             if (!rightNode)
                 pushSyntaxError(*pos, SYNTAX_ERR_EXPECTED_EXPRESSION);
@@ -848,7 +924,42 @@ static TreeNode* getExpression(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsig
 }
 
 
-static TreeNode* getBracketsExpression(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
+static TreeNode* getFunctionCall(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
+{
+    FE_LOG_FUNC_START();
+    assert(tree);
+    assert(pos);
+    assert(fe);
+
+    int oldPos = *pos;
+    TreeNode* node = getIdentifier(fe, tree, tokensStk, pos);
+    if (!node)
+    {
+        *pos = oldPos;
+        return nullptr;
+    }
+
+    if (tokenAt(*pos).type != TOKEN_OPERATION || operationToken(*pos).type != OPER_TYPE_LBR)
+    {
+        *pos = oldPos;
+        return nullptr;
+    }
+    (*pos)++;
+    getWhiteSpace(fe, tree, tokensStk, pos);
+
+    if (tokenAt(*pos).type != TOKEN_OPERATION || operationToken(*pos).type != OPER_TYPE_RBR)
+    {
+        pushSyntaxError(*pos, SYNTAX_ERR_RIGHT_FIGURE_MISSING);
+    }
+    (*pos)++;
+    getWhiteSpace(fe, tree, tokensStk, pos);
+
+    return node;
+    FE_LOG_FUNC_END();
+}
+
+
+static TreeNode* getExpressionUnit(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
 {
     FE_LOG_FUNC_START();
     assert(tree);
@@ -885,6 +996,16 @@ static TreeNode* getBracketsExpression(FrontEnd* fe, Tree* tree, Stack* tokensSt
 
         getWhiteSpace(fe, tree, tokensStk, pos);
     }
+    else if (tokenAt(*pos).type == TOKEN_IDENTIFIER)
+    {
+        FE_LOGF_COLOR(gray, "Found an identifier %.*s at position %u\n", operationToken(*pos).info.len,
+                                                                         operationToken(*pos).info.name, *pos);
+        node = getFunctionCall(fe, tree, tokensStk, pos);
+        if (!node)
+            node = getIdentifier(fe, tree, tokensStk, pos);
+        
+        getWhiteSpace(fe, tree, tokensStk, pos);
+    }
     else
     {
         LOGF_ERR(logFile, "unable to find a number\n");
@@ -906,8 +1027,8 @@ static TreeNode* getAssign(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned 
     unsigned int oldPos = *pos;
     unsigned int eqPos  = 0;
 
-    TreeNode* leftNode = getIdentifier(fe, tree, tokensStk, pos);
-    if (!leftNode)
+    TreeNode* rightNode = getIdentifier(fe, tree, tokensStk, pos);
+    if (!rightNode)
     {
         LOGF_ERR(logFile, "unable to find an identifier\n");
         *pos = oldPos;
@@ -929,9 +1050,10 @@ static TreeNode* getAssign(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned 
         return nullptr;
     }
 
-    TreeNode* rightNode = getExpression(fe, tree, tokensStk, pos, OPERATION_EXPRESSION_ORDER);
-    if (!rightNode)
+    TreeNode* leftNode = getExpression(fe, tree, tokensStk, pos, OPERATION_EXPRESSION_ORDER);
+    if (!leftNode)
     {
+        pushSyntaxError(*pos, SYNTAX_ERR_EXPECTED_EXPRESSION);
         LOGF_ERR(logFile, "unable to find an expression\n");
         *pos = oldPos;
         return nullptr;
@@ -1003,6 +1125,9 @@ static TreeNode* getStatement(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsign
 
     if (!node)
         node = getConditionStatement(fe, tree, tokensStk, pos);
+
+    if (!node)
+        node = getReturnStatement(fe, tree, tokensStk, pos);
 
     if (!node)
     {
@@ -1174,6 +1299,47 @@ static TreeNode* getDeclarationStatement(FrontEnd* fe, Tree* tree, Stack* tokens
         pushSyntaxError(*pos, SYNTAX_ERR_EXPECTED_SEMICOLON);
     }
 
+    (*pos)++;
+    getWhiteSpace(fe, tree, tokensStk, pos);
+
+    FE_LOG_FUNC_END();
+    return node;
+}
+
+
+static TreeNode* getReturnStatement(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
+{
+    FE_LOG_FUNC_START();
+    assert(fe);
+    assert(tree);
+    assert(pos);
+
+    int oldPos = *pos;
+    if (tokenAt(*pos).type != TOKEN_KEY_WORD || keyWordToken(*pos).type != KEY_WORD_RETURN)
+    {
+        *pos = oldPos;
+        return nullptr;
+    }
+    (*pos)++;
+    getWhiteSpace(fe, tree, tokensStk, pos);
+
+    TreeNode* node = treeCreateNode(tree, nullptr, nullptr, nullptr, tokenAt(oldPos));
+    if (!node)
+    {
+        FE_LOG_SET_ERROR(FE_ERR_TREE);
+    }
+
+    node->leftBranch = getExpression(fe, tree, tokensStk, pos, OPERATION_EXPRESSION_ORDER);
+    if (!node->leftBranch)
+    {
+        pushSyntaxError(*pos, SYNTAX_ERR_EXPECTED_EXPRESSION);
+    }
+    getWhiteSpace(fe, tree, tokensStk, pos);
+
+    if (tokenAt(*pos).type != TOKEN_PUNCTUATION || puctuationToken(*pos).type != PUNC_TYPE_SEMICOLON)
+    {
+        pushSyntaxError(*pos, SYNTAX_ERR_EXPECTED_SEMICOLON);
+    }
     (*pos)++;
     getWhiteSpace(fe, tree, tokensStk, pos);
 
