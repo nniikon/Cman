@@ -7,6 +7,9 @@
 #include "../../libs/memAllocations/memAllocations.h"
 #include "../../frontEnd/include/fe_tokenTree_cfg.h"
 
+const char TREE_FILE_NIL_NAME[] = "_"; // FIXME
+const int  TREE_FILE_NIL_LEN = sizeof(TREE_FILE_NIL_NAME) - 1;
+
 typedef struct TreeNode
 {
     treeElem_t data;
@@ -56,5 +59,7 @@ TreeNode* treeCreateEmptyNode(Tree* tree);
 TreeError treeCpy(const Tree* src, Tree* dst);
 
 void treeSetParents(Tree* tree);
+
+void treeSaveToFile(Tree* tree, FILE* file);
 
 #endif // TREE_H_

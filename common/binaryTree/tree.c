@@ -2,6 +2,8 @@
 
 #include <assert.h>
 #include "dump.h"
+#include "../../frontEnd/include/fe_tokenTree_cfg.h"
+#include "../../frontEnd/include/fe.h"
 
 #define DUMP_RETURN_ERROR(err)                                                \
     do                                                                        \
@@ -278,6 +280,49 @@ void treeSetParents(Tree* tree)
     treeSetParents_recursive(tree->rootBranch);
 }
 
+static void treePrintNodeToFile_recursive(TreeNode* node, FILE* file)
+{
+    assert(file);
+
+    if (node == NULL)
+    {
+        fprintf(file, "%s ", TREE_FILE_NIL_NAME);
+        return;
+    }
+
+    fputc('(', file);
+
+    if (node->data.type == TOKEN_IDENTIFIER || 
+        node->data.type == TOKEN_NUMBER)
+    {
+        int len = 0;
+        const char* str = getTokenStr(&node->data, &len);
+        fprintf(file, "$%.*s ", len, str); 
+    }
+    else if(node->data.type == TOKEN_WHITE_SPACE || 
+            node->data.type == TOKEN_COMMENT)
+    {
+        assert(0);
+    }
+    else
+    {
+        fprintf(file, "%d ", getTokenID(&node->data));
+    }
+
+    treePrintNodeToFile_recursive(node->leftBranch , file);
+    treePrintNodeToFile_recursive(node->rightBranch, file);
+
+    fputc(')', file);
+}
+
+
+void treeSaveToFile(Tree* tree, FILE* file)
+{
+    assert(tree);
+    assert(file);
+
+    treePrintNodeToFile_recursive(tree->rootBranch, file);
+}
 
 
 

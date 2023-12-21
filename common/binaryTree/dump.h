@@ -2,8 +2,10 @@
 #define DUMP_H_
 
 #include <stdio.h>
-#include "../logs/logs.h"
-// Uses logs.h for backward compatabilty.
+#include "../../libs/logs/logs.h"
+
+// Tree originally was using another logging lib
+// So I'm rerouting it to my new lib
 
 #ifndef DUMP_RELEASE
     #define DUMP(file ,...)         LOGF(file, __VA_ARGS__)

@@ -2,7 +2,7 @@
 
 #include <assert.h>
 
-#include "../logs/logs.h"
+#include "../../libs/logs/logs.h"
 #include "../../frontEnd/include/fe.h"
 
 static const char BGR_COLOR[]  = "#FFFFFF";
