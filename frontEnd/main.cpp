@@ -1,22 +1,23 @@
-#include "../include/fe.h"
-#include "../../libs/fileToBuffer/fileToBuffer.h"
+#include "./include/fe.h"
+#include "../libs/fileToBuffer/fileToBuffer.h"
+#include "../common/binaryTree/tree_saveLoad.h"
 
-// delete FIXME
-
-
-// delete
-
-const char* LOG_FILE_NAME = "logs.html";
-const char* INPUT_FILE_NAME = "source.cmk";
+const char* LOG_FILE_NAME    = "logs.html";
+const char* INPUT_FILE_NAME  = "source.cmk";
+const char* OUTPUT_FILE_NAME = "output.tre";
 
 int main()
 {
     FrontEndError error = FE_ERR_NO;
-    FILE* logFile = nullptr;
-    FILE* srcFile = nullptr;
-    FrontEnd fe = {};
+
+    FILE* logFile    = nullptr;
+    FILE* srcFile    = nullptr;
+    FILE* outputFile = nullptr;
+
     char* srcInput = nullptr;
-    Stack tokens = {};
+
+    FrontEnd fe     = {};
+    Stack tokens    = {};
     Tree syntaxTree = {};
 
     logFile = logOpenFile(LOG_FILE_NAME);
@@ -31,6 +32,13 @@ int main()
     {
         error = FE_ERR_BAD_FOPEN;
         goto ReturnBadSrcFile;
+    }
+
+    outputFile = fopen(OUTPUT_FILE_NAME, "w");
+    if (!outputFile)
+    {
+        error = FE_ERR_BAD_FOPEN;
+        goto ReturnBadOutputFile;
     }
 
     frontEndSetLogFile(logFile);
@@ -53,23 +61,29 @@ int main()
     if (fe.error)
     {
         error = fe.error;
-        goto ReturnFreeAll;
+        goto ReturnBadTokens;
     }
 
     syntaxTree = parseTokensToSyntaxTree(&fe, &tokens);
     if (fe.error)
     {
         error = fe.error;
-        goto ReturnFreeAll;
+        goto ReturnBadTree;
     }
 
     printSyntaxErrors(&fe, &tokens);
+    treeSaveToFile(&syntaxTree, outputFile);
 
-    ReturnFreeAll:
+    treeDtor(&syntaxTree);
+    ReturnBadTree:
+    stackDtor(&tokens);
+    ReturnBadTokens:
     free(srcInput);
     ReturnBadFtb:
     frontEndDtor(&fe);
     ReturnBadCtor:
+    fclose(outputFile);
+    ReturnBadOutputFile:
     fclose(srcFile);
     ReturnBadSrcFile:
     fclose(logFile);

@@ -13,6 +13,7 @@
 struct OperatorsParent
 {
     TokenInfo info;
+    int type;
 };
 
 struct NameTableUnit
@@ -51,10 +52,13 @@ void frontEndSetLogFile(FILE* file);
 Stack parseStrToTokens(FrontEnd* fe, const char* str);
 
 const char* getTokenStr(Token* token, int* size);
+int         getTokenID (Token* token);
 
 Tree parseTokensToSyntaxTree(FrontEnd* fe, Stack* tokensStk);
 
 void printSyntaxErrors(const FrontEnd* fe, const Stack* tokensStk);
+
+const NameTableUnit* getNameTableUnitByName(FrontEnd* fe, const char* str);
 
 #define FE_LOG_SET_ERROR(err)                                                   \
     do {                                                                        \

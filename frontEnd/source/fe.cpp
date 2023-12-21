@@ -38,6 +38,28 @@ const char* feGetErrorMsg(FrontEndError err)
 }
 
 
+int getTokenID(Token* token)
+{
+    switch (token->type)
+    {
+        case TOKEN_NUMBER:
+        case TOKEN_IDENTIFIER:
+            return -1;
+        case TOKEN_COMMENT:
+        case TOKEN_WHITE_SPACE:
+            return (int) token->type;
+        case TOKEN_KEY_WORD:
+        case TOKEN_OPERATION:
+        case TOKEN_PUNCTUATION:
+            return ((const OperatorsParent*)(token->structPtr))->type | token->type;
+        
+        default:
+            assert(0);
+            return 0;
+    }
+}
+
+
 const char* getTokenStr(Token* token, int* size)
 {
     assert(token);
@@ -262,6 +284,27 @@ void frontEndCtor(FrontEnd* fe, const char* fileName)
 }
 
 
+const NameTableUnit* getNameTableUnitByName(FrontEnd* fe, const char* str)
+{
+    assert(str);
+    assert(fe);
+
+    FE_LOGF_COLOR(white, "Trying to get a name from the name table\n");
+    NameTableUnit* units = (NameTableUnit*) fe->nameTable.data;
+
+    for (unsigned int i = 0; i < fe->nameTable.size; i++)
+    {
+        if (strncasecmp(str, units[i].name, units[i].len) == 0)
+        {
+            FE_LOGF_COLOR(SpringGreen, "Success, found %.*s\n", units[i].len, 
+                                                                units[i].name);
+            return units + i;
+        }
+    }
+    return nullptr;
+}
+
+
 void frontEndDtor(FrontEnd* fe)
 {
     FE_LOG_FUNC_START();
@@ -384,20 +427,14 @@ static bool tryNameToken(FrontEnd* fe, const char* str, int* size, Token* token)
     assert(token);
 
     FE_LOGF_COLOR(white, "Trying to get a name from the name table\n");
-    NameTableUnit* units = (NameTableUnit*) fe->nameTable.data;
 
-    for (unsigned int i = 0; i < fe->nameTable.size; i++)
-    {
-        if (strncasecmp(str, units[i].name, units[i].len) == 0)
-        {
-            FE_LOGF_COLOR(SpringGreen, "Success, found %.*s\n", units[i].len, 
-                                                                units[i].name);
-            *size  = units[i].len;
-            *token = units[i].token;
-            return true;
-        }
-    }
-    return false;
+    const NameTableUnit* unit = getNameTableUnitByName(fe, str);
+    if (!unit)
+        return false;
+
+    *size = unit->len;
+    *token = unit->token;
+    return true;
 }
 
 
