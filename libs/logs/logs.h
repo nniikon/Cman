@@ -41,7 +41,7 @@ FILE* logOpenFile(const char* fileName);
     do                                                                           \
     {                                                                            \
         const int timeBufferSize_log = 10;                                       \
-        const int     bufferSize_log = 39;                                       \
+        const int     bufferSize_log = 50;                                       \
         if (file != NULL)                                                        \
         {                                                                        \
             char     buffer_log[    bufferSize_log] = {};                        \
