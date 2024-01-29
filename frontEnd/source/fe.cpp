@@ -5,7 +5,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
-#include <stdint.h>
 
 #include "../../common/binaryTree/tree_graphDump.h"
 #include "../../libs/ansiColors/ansiColors.h"
@@ -45,7 +44,6 @@ int getTokenID(Token* token)
         case TOKEN_NUMBER:
         case TOKEN_IDENTIFIER:
             return -1;
-        case TOKEN_COMMENT:
         case TOKEN_WHITE_SPACE:
             return (int) token->type;
         case TOKEN_KEY_WORD:
@@ -204,6 +202,7 @@ void frontEndSetLogFile(FILE* file)
 }
 
 
+// FIXME: add goto 
 void frontEndCtor(FrontEnd* fe, const char* fileName)
 {
     FE_LOG_FUNC_START();
@@ -298,6 +297,11 @@ const NameTableUnit* getNameTableUnitByName(FrontEnd* fe, const char* str)
         {
             FE_LOGF_COLOR(SpringGreen, "Success, found %.*s\n", units[i].len, 
                                                                 units[i].name);
+
+            // If the identifier string is still going.
+            if (isalnum(str[units[i].len]) && units[i].token.type == TOKEN_IDENTIFIER)
+                continue;
+
             return units + i;
         }
     }
@@ -567,42 +571,49 @@ static bool tryIndentifierToken(FrontEnd* fe, const char* str, int* size, Token*
 ////////////////////////////////// PARSER /////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+#define ASSERT_ALL()                                                           \
+    FE_LOG_FUNC_START();                                                       \
+    FE_LOGF_COLOR(SpringGreen, "Current position: %u\n", *pos);                \
+    assert(fe);                                                                \
+    assert(tree);                                                              \
+    assert(pos); 
+
 #define tokenAt(pos)        (((const Token*)tokensStk->data)[pos])
 
-#define keyWordToken(pos)    (*((const KeyWord*)    (tokenAt(pos)).structPtr))
-#define identifierToken(pos) (*((const Identifier*) (tokenAt(pos)).structPtr))
-#define operationToken(pos)  (*((const Operation*)  (tokenAt(pos)).structPtr))
-#define puctuationToken(pos) (*((const Punctuation*)(tokenAt(pos)).structPtr))
+#define keyWordToken(pos)     (*((const KeyWord*)    (tokenAt(pos)).structPtr))
+#define identifierToken(pos)  (*((const Identifier*) (tokenAt(pos)).structPtr))
+#define operationToken(pos)   (*((const Operation*)  (tokenAt(pos)).structPtr))
+#define punctuationToken(pos) (*((const Punctuation*)(tokenAt(pos)).structPtr))
 
 #define createIdentifierToken(pos) (((const NameTableUnit*)(fe->nameTable.data))[identifierToken(pos).nameTableID].token)
 #define createSemicolonToken() {.type = TOKEN_PUNCTUATION, .structPtr = PUNCTUATIONS + (int)PUNC_TYPE_SEMICOLON}
+#define createSemicolonNode() treeCreateNode(tree, NULL, NULL, NULL, createSemicolonToken())
 
-#define pushSyntaxError(pos, errType)                                              \
-    do {                                                                           \
-        SyntaxError syntaxError_ = {.tokenPos = pos, .type = errType};             \
-        if (stackPush(&fe->syntaxErrors, &syntaxError_))                           \
-        {                                                                          \
-            FE_LOG_SET_ERROR(FE_ERR_MEM_STACK);                                    \
-            return nullptr;                                                        \
-        }                                                                          \
+#define pushSyntaxError(pos, errStr)                                           \
+    do {                                                                       \
+        SyntaxError syntaxError_ = {.tokenPos = pos, .str = errStr};           \
+        if (stackPush(&fe->syntaxErrors, &syntaxError_))                       \
+        {                                                                      \
+            FE_LOG_SET_ERROR(FE_ERR_MEM_STACK);                                \
+            return nullptr;                                                    \
+        }                                                                      \
     } while(0)
 
-static TreeNode* getAll                 (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
-static TreeNode* getGlobalChunk         (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
-static TreeNode* getExpression          (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos, int order);
-static TreeNode* getFunction            (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
-static TreeNode* getExpressionUnit      (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
-static TreeNode* getStatement           (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
-static TreeNode* getConditionStatement  (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
-static TreeNode* getStatementList       (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
-static TreeNode* getAssign              (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
-static TreeNode* getAssignStatement     (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
-static TreeNode* getDeclaration         (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
-static TreeNode* getDeclarationStatement(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
-static TreeNode* getSpecifier           (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
-static TreeNode* getIdentifier          (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
-static TreeNode* getReturnStatement     (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
-static bool      getWhiteSpace          (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
+#define isKeyword(word)     (tokenAt(*pos).type == TOKEN_KEY_WORD    &&     keyWordToken(*pos).type == (word))
+#define isOperation(oper)   (tokenAt(*pos).type == TOKEN_OPERATION   &&   operationToken(*pos).type == (oper))
+#define isPunctuation(punc) (tokenAt(*pos).type == TOKEN_PUNCTUATION && punctuationToken(*pos).type == (punc))
+
+#define createNode(node)                                                       \
+    (node) = treeCreateNode(tree, nullptr, nullptr,                            \
+                                          nullptr, tokenAt(*pos));             \
+    if (!node)                                                                 \
+        FE_LOG_SET_ERROR(FE_ERR_TREE);                                         \
+
+
+static TreeNode* getAll       (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
+static bool      getWhiteSpace(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
+static TreeNode* getSpecifier (FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
+static TreeNode* getIdentifier(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos);
 
 
 static void printSyntaxError(const FrontEnd* fe, const Stack* tokensStk, SyntaxError* err)
@@ -615,8 +626,8 @@ static void printSyntaxError(const FrontEnd* fe, const Stack* tokensStk, SyntaxE
             tokenAt(err->tokenPos).posInfo.lineNumber, tokenAt(err->tokenPos).posInfo.charNumber);
 
     fprintf(stdout, ANSI_COLOR_RED "error: " ANSI_COLOR_RESET);
-    fprintf(stdout, "%s\n", getSyntaxError(err->type));
-    fprintf(stdout, "%6d | %.*s\n",  (int) tokenAt(err->tokenPos).posInfo.curLineLen,
+    fprintf(stdout, "%s\n", err->str);
+    fprintf(stdout, "%6d | %.*s\n",  (int) tokenAt(err->tokenPos).posInfo.lineNumber,
                                      (int) tokenAt(err->tokenPos).posInfo.curLineLen,
                                            tokenAt(err->tokenPos).posInfo.curLine    );
     fprintf(stdout, "%7c|\n", ' ');
@@ -630,12 +641,11 @@ void printSyntaxErrors(const FrontEnd* fe, const Stack* tokensStk)
     FE_LOG_FUNC_START();
     assert(fe);
 
-    for (unsigned int i = 0; i < fe->syntaxErrors.size; i++)
+    for (int i = fe->syntaxErrors.size - 1; i >= 0; i--)
     {
         printSyntaxError(fe, tokensStk, (SyntaxError*)(fe->syntaxErrors.data) + i);
     }
     
-
     FE_LOG_FUNC_END();
 }
 
@@ -666,136 +676,10 @@ Tree parseTokensToSyntaxTree(FrontEnd* fe, Stack* tokensStk)
     return syntaxTree;
 }
 
-
-static TreeNode* getAll(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
-{
-    FE_LOG_FUNC_START();
-    assert(fe);
-    assert(tree);
-    assert(pos); 
-
-    TreeNode* node = getGlobalChunk(fe, tree, tokensStk, pos);
-    if (!node)
-        return nullptr;
-
-    TreeNode* topNode = node;
-
-    while (*pos < tokensStk->size)
-    {
-        node->rightBranch = getGlobalChunk(fe, tree, tokensStk, pos);
-        if (node->rightBranch)
-        {
-            node = node->rightBranch;
-        }
-        else
-        {
-            break;
-        }
-    }
-
-    FE_LOG_FUNC_END();
-    return topNode;    
-}
-
-
-static TreeNode* getGlobalChunk(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
-{
-    FE_LOG_FUNC_START();
-    assert(fe);
-    assert(tree);
-    assert(pos);
-
-    TreeNode* node = nullptr;
-
-    node = getFunction(fe, tree, tokensStk, pos);
-    if (!node)
-    {
-        node = getDeclarationStatement(fe, tree, tokensStk, pos);
-    }
-    if (!node)
-    {
-        pushSyntaxError(*pos, SYNTAX_ERR_EXPECTED_SPECIFIER);
-    }
-    if (!node)
-    {
-        return nullptr;
-    }
-
-    node = treeCreateNode(tree, node, nullptr, nullptr, createSemicolonToken());
-    if (!node)
-    {
-        FE_LOG_SET_ERROR(FE_ERR_TREE);
-    }
-
-    return node;
-    FE_LOG_FUNC_END();
-}
-
-
-//                                +--------- I HATE THIS WS
-//                                V
-// getSpecifier WS getIdentifier WS '(' ')' getStatement
-static TreeNode* getFunction(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
-{
-    FE_LOG_FUNC_START();
-    assert(fe);
-    assert(tree);
-    assert(pos);
-
-    unsigned int oldPos = *pos;
-
-    TreeNode* nodeSpec = getSpecifier(fe, tree, tokensStk, pos);
-    if (!nodeSpec)
-    {
-        *pos = oldPos;
-        return nullptr;
-    }
-
-    getWhiteSpace(fe, tree, tokensStk, pos);
-
-    TreeNode* nodeIden = getIdentifier(fe, tree, tokensStk, pos);
-    nodeSpec->leftBranch = nodeIden;
-    if (!nodeIden)
-    {
-        *pos = oldPos;
-        return nullptr;
-    }
-
-    getWhiteSpace(fe, tree, tokensStk, pos);
-
-    if (tokenAt(*pos).type != TOKEN_OPERATION || operationToken(*pos).type != OPER_TYPE_LBR)
-    {
-        *pos = oldPos;
-        return nullptr;
-    }
-
-    (*pos)++;
-    getWhiteSpace(fe, tree, tokensStk, pos);
-
-    if (tokenAt(*pos).type != TOKEN_OPERATION || operationToken(*pos).type != OPER_TYPE_RBR)
-    {
-        pushSyntaxError(*pos, SYNTAX_ERR_RIGHT_BRACKET_MISSING);
-    }
-
-    (*pos)++;
-    getWhiteSpace(fe, tree, tokensStk, pos);
-
-    TreeNode* statementNode = getStatementList(fe, tree, tokensStk, pos);
-
-    nodeIden->leftBranch = statementNode; 
-
-    return nodeSpec;
-
-    FE_LOG_FUNC_END();
-}
-
-
+const char* getIdentifier_errStr = "expected an identifier";
 static TreeNode* getIdentifier(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
 {
-    FE_LOG_FUNC_START();
-    assert(fe);
-    assert(tree);
-    assert(pos);
+    ASSERT_ALL();
 
     if (tokenAt(*pos).type != TOKEN_IDENTIFIER)
     {
@@ -806,9 +690,7 @@ static TreeNode* getIdentifier(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsig
 
     TreeNode* node = treeCreateNode(tree, nullptr, nullptr, nullptr, createIdentifierToken(*pos));
     if (!node)
-    {
         FE_LOG_SET_ERROR(FE_ERR_TREE);
-    }
 
     FE_LOGF_COLOR(gray, "Found identifier %.*s at position %u\n", identifierToken(*pos).info.len,
                                                                   identifierToken(*pos).info.name, *pos);
@@ -818,21 +700,35 @@ static TreeNode* getIdentifier(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsig
     return node;
 }
 
-
-static TreeNode* getSpecifier(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
+const char* getNumber_errStr = "expected a number";
+static TreeNode* getNumber(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
 {
-    FE_LOG_FUNC_START();
-    assert(fe);
-    assert(tree);
-    assert(pos);
+    ASSERT_ALL();
 
-    if (tokenAt(*pos).type != TOKEN_KEY_WORD)
+    if (tokenAt(*pos).type != TOKEN_NUMBER)
     {
-        LOGF_ERR(logFile, "Unable to recognize a specifier, current position: %u\n", *pos);
+        LOGF_ERR(logFile, "Unable to recognize a number, current position: %u\n", *pos);
         return nullptr;
     }
 
-    if (keyWordToken(*pos).type != KEY_WORD_INT) // FIXME: add isSpecifier function
+    FE_LOGF_COLOR(gray, "Found number %.*s at position %u\n", keyWordToken(*pos).info.len,
+                                                              keyWordToken(*pos).info.name, *pos);
+
+    TreeNode* node = treeCreateNode(tree, nullptr, nullptr, nullptr, tokenAt(*pos));
+    if (!node)
+        FE_LOG_SET_ERROR(FE_ERR_TREE);
+    (*pos)++;
+
+    FE_LOG_FUNC_END();
+    return node;
+}
+
+const char* getSpecifier_errStr = "expected a specifier";
+static TreeNode* getSpecifier(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
+{
+    ASSERT_ALL();
+
+    if (!isKeyword(KEY_WORD_INT)) // FIXME: add isSpecifier function
     {
         LOGF_ERR(logFile, "Unable to recognize a specifier, current position: %u\n", *pos);
         return nullptr;
@@ -842,6 +738,8 @@ static TreeNode* getSpecifier(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsign
                                                                  keyWordToken(*pos).info.name, *pos);
 
     TreeNode* node = treeCreateNode(tree, nullptr, nullptr, nullptr, tokenAt(*pos));
+    if (!node)
+        FE_LOG_SET_ERROR(FE_ERR_TREE);
     (*pos)++;
 
     FE_LOG_FUNC_END();
@@ -851,506 +749,18 @@ static TreeNode* getSpecifier(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsign
 
 static bool getWhiteSpace(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
 {
-    FE_LOG_FUNC_START();
-    assert(fe);
-    assert(tree);
-    assert(pos);
+    ASSERT_ALL();
 
-    if (tokenAt(*pos).type == TOKEN_WHITE_SPACE)
-    {
-        FE_LOGF_COLOR(gray, "Got a white space at position: %u\n", *pos);
-        (*pos)++;
-    }
-    else
-    {
-        // FIXME_ERR_HANDING: ...
+    if (tokenAt(*pos).type != TOKEN_WHITE_SPACE)
         return false;
-    }
+
+    FE_LOGF_COLOR(gray, "Got a white space at position: %u\n", *pos);
+    (*pos)++;
 
     FE_LOG_FUNC_END();
     return true;
 }
 
 
-static TreeNode* getExpression(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos, int order)
-{
-    FE_LOG_FUNC_START();
-    assert(fe);
-    assert(tree);
-    assert(pos);
-    if (*pos >= tokensStk->size)
-        return nullptr;
-
-    TreeNode* leftNode = nullptr;
-
-    if (order == 1)
-        leftNode = getExpressionUnit(fe, tree, tokensStk, pos);
-    else
-        leftNode = getExpression(fe, tree, tokensStk, pos, order - 1);
-
-    getWhiteSpace(fe, tree, tokensStk, pos);
-
-
-    while (*pos < tokensStk->size && tokenAt(*pos).type == TOKEN_OPERATION && operationToken(*pos).order == order)
-    {
-        FE_LOGF_COLOR(gray, "Found operation %.*s at position %u\n", operationToken(*pos).info.len,
-                                                                     operationToken(*pos).info.name, *pos);
-
-        unsigned int oldPos = *pos;
-        (*pos)++;
-
-        getWhiteSpace(fe, tree, tokensStk, pos);
-
-        TreeNode* rightNode = nullptr;
-
-        if (order == 1)
-            rightNode = getExpressionUnit(fe, tree, tokensStk, pos);
-        else
-            rightNode = getExpression(fe, tree, tokensStk, pos, order - 1);
-
-        if (*pos < tokensStk->size && !(operationToken(*pos).arity & OPER_UNARY))
-        {
-            if (!rightNode)
-                pushSyntaxError(*pos, SYNTAX_ERR_EXPECTED_EXPRESSION);
-        }
-
-        getWhiteSpace(fe, tree, tokensStk, pos);
-
-        leftNode = treeCreateNode(tree, leftNode, rightNode, nullptr, tokenAt(oldPos));
-    }
-
-    FE_LOG_FUNC_END();
-    return leftNode;
-}
-
-
-static TreeNode* getFunctionCall(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
-{
-    FE_LOG_FUNC_START();
-    assert(tree);
-    assert(pos);
-    assert(fe);
-
-    int oldPos = *pos;
-    TreeNode* node = getIdentifier(fe, tree, tokensStk, pos);
-    if (!node)
-    {
-        *pos = oldPos;
-        return nullptr;
-    }
-
-    if (tokenAt(*pos).type != TOKEN_OPERATION || operationToken(*pos).type != OPER_TYPE_LBR)
-    {
-        *pos = oldPos;
-        return nullptr;
-    }
-    (*pos)++;
-    getWhiteSpace(fe, tree, tokensStk, pos);
-
-    if (tokenAt(*pos).type != TOKEN_OPERATION || operationToken(*pos).type != OPER_TYPE_RBR)
-    {
-        pushSyntaxError(*pos, SYNTAX_ERR_RIGHT_FIGURE_MISSING);
-    }
-    (*pos)++;
-    getWhiteSpace(fe, tree, tokensStk, pos);
-
-    return node;
-    FE_LOG_FUNC_END();
-}
-
-
-static TreeNode* getExpressionUnit(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
-{
-    FE_LOG_FUNC_START();
-    assert(tree);
-    assert(pos);
-    assert(fe);
-
-    TreeNode* node = nullptr;
-
-    if (tokenAt(*pos).type == TOKEN_NUMBER)
-    {
-        node = treeCreateNode(tree, nullptr, nullptr, nullptr, tokenAt(*pos)); 
-        FE_LOGF_COLOR(gray, "Found number %.*s at position %u\n", operationToken(*pos).info.len,
-                                                                  operationToken(*pos).info.name, *pos);
-        (*pos)++;
-
-        getWhiteSpace(fe, tree, tokensStk, pos);
-    }
-    else if (tokenAt(*pos).type == TOKEN_OPERATION && operationToken(*pos).type == OPER_TYPE_LBR)
-    {
-        FE_LOGF_COLOR(gray, "Found a bracket %.*s at position %u\n", operationToken(*pos).info.len,
-                                                                     operationToken(*pos).info.name, *pos);
-        (*pos)++;
-
-        getWhiteSpace(fe, tree, tokensStk, pos);
-
-        node = getExpression(fe, tree, tokensStk, pos, OPERATION_EXPRESSION_ORDER);
-
-        if (tokenAt(*pos).type != TOKEN_OPERATION || operationToken(*pos).type != OPER_TYPE_RBR)
-        {
-            pushSyntaxError(*pos, SYNTAX_ERR_RIGHT_BRACKET_MISSING);
-        }
-
-        (*pos)++;
-
-        getWhiteSpace(fe, tree, tokensStk, pos);
-    }
-    else if (tokenAt(*pos).type == TOKEN_IDENTIFIER)
-    {
-        FE_LOGF_COLOR(gray, "Found an identifier %.*s at position %u\n", operationToken(*pos).info.len,
-                                                                         operationToken(*pos).info.name, *pos);
-        node = getFunctionCall(fe, tree, tokensStk, pos);
-        if (!node)
-            node = getIdentifier(fe, tree, tokensStk, pos);
-        
-        getWhiteSpace(fe, tree, tokensStk, pos);
-    }
-    else
-    {
-        LOGF_ERR(logFile, "unable to find a number\n");
-        return nullptr;
-    }
-
-    FE_LOG_FUNC_END();
-    return node;
-}
-
-
-static TreeNode* getAssign(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
-{
-    FE_LOG_FUNC_START();
-    assert(fe);
-    assert(tree);
-    assert(pos);
-
-    unsigned int oldPos = *pos;
-    unsigned int eqPos  = 0;
-
-    TreeNode* rightNode = getIdentifier(fe, tree, tokensStk, pos);
-    if (!rightNode)
-    {
-        LOGF_ERR(logFile, "unable to find an identifier\n");
-        *pos = oldPos;
-        return nullptr;
-    }
-
-    getWhiteSpace(fe, tree, tokensStk, pos);
-
-    if (tokenAt(*pos).type == TOKEN_OPERATION && operationToken(*pos).type == OPER_TYPE_ASGN)
-    {
-        eqPos = *pos;
-        (*pos)++;
-        getWhiteSpace(fe, tree, tokensStk, pos);
-    }
-    else
-    {
-        LOGF_ERR(logFile, "unable to find equal sign at position %u\n", *pos);
-        *pos = oldPos;
-        return nullptr;
-    }
-
-    TreeNode* leftNode = getExpression(fe, tree, tokensStk, pos, OPERATION_EXPRESSION_ORDER);
-    if (!leftNode)
-    {
-        pushSyntaxError(*pos, SYNTAX_ERR_EXPECTED_EXPRESSION);
-        LOGF_ERR(logFile, "unable to find an expression\n");
-        *pos = oldPos;
-        return nullptr;
-    }
-
-    TreeNode* node = treeCreateNode(tree, leftNode, rightNode, nullptr, tokenAt(eqPos));
-    if (!node)
-    {
-        *pos = oldPos;
-        FE_LOG_SET_ERROR(FE_ERR_TREE);
-        return nullptr;
-    }
-
-    FE_LOG_FUNC_END();
-    return node;
-}
-
-
-static TreeNode* getDeclaration(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
-{
-    FE_LOG_FUNC_START();
-    assert(fe);
-    assert(tree);
-    assert(pos);
-
-    unsigned int oldPos = *pos;
-
-    TreeNode* leftNode = getSpecifier(fe, tree, tokensStk, pos);
-    if (!leftNode)
-    {
-        LOGF_ERR(logFile, "unable to find a specifier\n");
-        *pos = oldPos;
-        return nullptr;
-    }
-
-    getWhiteSpace(fe, tree, tokensStk, pos);
-
-    //           +------ sorry
-    //           V
-    TreeNode* assNode = getAssign(fe, tree, tokensStk, pos);
-    if (!assNode)
-    {
-        LOGF_ERR(logFile, "unable to find an assign\n");
-        *pos = oldPos;
-        return nullptr;
-    }
-
-    leftNode->leftBranch = assNode;
-
-    FE_LOG_FUNC_END();
-    return leftNode;
-}
-
-// Declaration;
-// Assignment;
-static TreeNode* getStatement(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
-{
-    FE_LOG_FUNC_START();
-    assert(fe);
-    assert(tree);
-    assert(pos);
-
-    TreeNode* node = nullptr;
-
-    node = getDeclarationStatement(fe, tree, tokensStk, pos);
-
-    if (!node)
-        node = getAssignStatement(fe, tree, tokensStk, pos);
-
-    if (!node)
-        node = getConditionStatement(fe, tree, tokensStk, pos);
-
-    if (!node)
-        node = getReturnStatement(fe, tree, tokensStk, pos);
-
-    if (!node)
-    {
-        LOGF_ERR(logFile, "unable to find statement at pos %u\n", *pos);
-        return nullptr;
-    }
-
-    TreeNode* rightNode = treeCreateNode(tree, nullptr, nullptr, nullptr, tokenAt(*pos));
-    if (!rightNode)
-    {
-        FE_LOG_SET_ERROR(FE_ERR_TREE);
-        return nullptr;
-    }
-
-    node = treeCreateNode(tree, node, nullptr, nullptr, createSemicolonToken());
-
-    getWhiteSpace(fe, tree, tokensStk, pos);
-
-    return node;
-    FE_LOG_FUNC_END();
-}
-
-
-// '{' Statement;(*) '}'
-// Statement;
-static TreeNode* getStatementList(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
-{
-    FE_LOG_FUNC_START();
-    assert(fe);
-    assert(tree);
-    assert(pos);
-
-    TreeNode* statementNode = nullptr;
-    if (tokenAt(*pos).type == TOKEN_PUNCTUATION && puctuationToken(*pos).type == PUNC_TYPE_FIGURE_L)
-    {
-        (*pos)++;
-        getWhiteSpace(fe, tree, tokensStk, pos);
-
-        TreeNode* leftNode = getStatement(fe, tree, tokensStk, pos);
-        if (leftNode == nullptr)
-        {
-            return nullptr;
-        }
-        statementNode = leftNode;
-        while (leftNode)
-        {
-            TreeNode* node = getStatement(fe, tree, tokensStk, pos);
-            if (node)
-            {
-                leftNode->rightBranch = node;
-                leftNode = node; 
-            }
-            else
-            {
-                break;
-            }
-        }
-
-        if (tokenAt(*pos).type != TOKEN_PUNCTUATION || puctuationToken(*pos).type != PUNC_TYPE_FIGURE_R)
-        {
-            return nullptr;
-        }
-        (*pos)++;
-        getWhiteSpace(fe, tree, tokensStk, pos);
-    }
-    else
-    {
-        statementNode = getStatement(fe, tree, tokensStk, pos);
-    }
-    FE_LOG_FUNC_END();
-    return statementNode;
-}
-
-
-static TreeNode* getConditionStatement(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
-{
-    FE_LOG_FUNC_START();
-    assert(fe);
-    assert(tree);
-    assert(pos);
-
-    if (tokenAt(*pos).type != TOKEN_KEY_WORD)
-    {
-        LOGF_ERR(logFile, "unable to find conditional statement\n");
-        return nullptr;
-    }
-
-    TreeNode* node = nullptr;
-
-    if (keyWordToken(*pos).type == KEY_WORD_IF || keyWordToken(*pos).type == KEY_WORD_WHILE)
-    {
-        node = treeCreateNode(tree, nullptr, nullptr, nullptr, tokenAt(*pos));
-        if (!node)
-        {
-            FE_LOG_SET_ERROR(FE_ERR_TREE);
-            return nullptr;
-        }
-        (*pos)++;
-        getWhiteSpace(fe, tree, tokensStk, pos);
-
-        if (tokenAt(*pos).type != TOKEN_OPERATION || operationToken(*pos).type != OPER_TYPE_LBR)
-        {
-            pushSyntaxError(*pos, SYNTAX_ERR_LEFT_BRACKET_MISSING);
-        }
-        (*pos)++;
-        getWhiteSpace(fe, tree, tokensStk, pos);
-
-        TreeNode* leftNode = getExpression(fe, tree, tokensStk, pos, OPERATION_EXPRESSION_ORDER);
-        if (!leftNode)
-        {
-            pushSyntaxError(*pos, SYNTAX_ERR_EXPECTED_EXPRESSION);
-        }
-
-        if (tokenAt(*pos).type != TOKEN_OPERATION || operationToken(*pos).type != OPER_TYPE_RBR)
-        {
-            pushSyntaxError(*pos, SYNTAX_ERR_RIGHT_BRACKET_MISSING);
-        }
-        (*pos)++;
-        getWhiteSpace(fe, tree, tokensStk, pos);
-
-        TreeNode* rightNode = getStatementList(fe, tree, tokensStk, pos);
-
-        node->leftBranch  = leftNode;
-        node->rightBranch = rightNode;
-    }
-
-    FE_LOG_FUNC_END();
-    return node;
-}
-
-
-static TreeNode* getAssignStatement(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
-{
-    FE_LOG_FUNC_START();
-    assert(fe);
-    assert(tree);
-    assert(pos);
-
-    TreeNode* node = getAssign(fe, tree, tokensStk, pos);
-    if (!node)
-        return nullptr;
-
-    if (tokenAt(*pos).type != TOKEN_PUNCTUATION || puctuationToken(*pos).type != PUNC_TYPE_SEMICOLON)
-    {
-        pushSyntaxError(*pos, SYNTAX_ERR_EXPECTED_SEMICOLON);
-    }
-
-    (*pos)++;
-    getWhiteSpace(fe, tree, tokensStk, pos);
-
-    FE_LOG_FUNC_END();
-    return node;
-}
-
-
-static TreeNode* getDeclarationStatement(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
-{
-    FE_LOG_FUNC_START();
-    assert(fe);
-    assert(tree);
-    assert(pos);
-
-    TreeNode* node = getDeclaration(fe, tree, tokensStk, pos);
-    if (!node)
-        return nullptr;
-
-    if (tokenAt(*pos).type != TOKEN_PUNCTUATION || puctuationToken(*pos).type != PUNC_TYPE_SEMICOLON)
-    {
-        pushSyntaxError(*pos, SYNTAX_ERR_EXPECTED_SEMICOLON);
-    }
-
-    (*pos)++;
-    getWhiteSpace(fe, tree, tokensStk, pos);
-
-    FE_LOG_FUNC_END();
-    return node;
-}
-
-
-static TreeNode* getReturnStatement(FrontEnd* fe, Tree* tree, Stack* tokensStk, unsigned int* pos)
-{
-    FE_LOG_FUNC_START();
-    assert(fe);
-    assert(tree);
-    assert(pos);
-
-    int oldPos = *pos;
-    if (tokenAt(*pos).type != TOKEN_KEY_WORD || keyWordToken(*pos).type != KEY_WORD_RETURN)
-    {
-        *pos = oldPos;
-        return nullptr;
-    }
-    (*pos)++;
-    getWhiteSpace(fe, tree, tokensStk, pos);
-
-    TreeNode* node = treeCreateNode(tree, nullptr, nullptr, nullptr, tokenAt(oldPos));
-    if (!node)
-    {
-        FE_LOG_SET_ERROR(FE_ERR_TREE);
-    }
-
-    node->leftBranch = getExpression(fe, tree, tokensStk, pos, OPERATION_EXPRESSION_ORDER);
-    if (!node->leftBranch)
-    {
-        pushSyntaxError(*pos, SYNTAX_ERR_EXPECTED_EXPRESSION);
-    }
-    getWhiteSpace(fe, tree, tokensStk, pos);
-
-    if (tokenAt(*pos).type != TOKEN_PUNCTUATION || puctuationToken(*pos).type != PUNC_TYPE_SEMICOLON)
-    {
-        pushSyntaxError(*pos, SYNTAX_ERR_EXPECTED_SEMICOLON);
-    }
-    (*pos)++;
-    getWhiteSpace(fe, tree, tokensStk, pos);
-
-    FE_LOG_FUNC_END();
-    return node;
-}
-
-
-#undef tokenAt
-#undef keyWordToken
-#undef identifierToken
-#undef punctuationToken
-#undef createKeyWordToken
-#undef createIdentifierToken
+#include "../../stoYACC_generated1.h"
+#include "../../stoYACC_generated2.h"

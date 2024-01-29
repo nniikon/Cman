@@ -13,7 +13,7 @@ enum SyntaxErrorType
 struct SyntaxError
 {
     unsigned int tokenPos;
-    SyntaxErrorType type;
+    const char* str;
 };
 
 const char* getSyntaxError(SyntaxErrorType err);

@@ -9,10 +9,9 @@ enum TokenType
     TOKEN_OPERATION   = 1 << (8 + 1),
     TOKEN_IDENTIFIER  = 1 << (8 + 2),
     TOKEN_KEY_WORD    = 1 << (8 + 3),
-    TOKEN_COMMENT     = 1 << (8 + 4),
-    TOKEN_WHITE_SPACE = 1 << (8 + 5),
-    TOKEN_PUNCTUATION = 1 << (8 + 6),
-    TOKEN_NUMBER      = 1 << (8 + 7),
+    TOKEN_WHITE_SPACE = 1 << (8 + 4),
+    TOKEN_PUNCTUATION = 1 << (8 + 5),
+    TOKEN_NUMBER      = 1 << (8 + 6),
 };
 
 struct TokenPosInfo

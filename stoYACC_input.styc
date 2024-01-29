@@ -1,0 +1,77 @@
+getAll
+    : ( getGlobalChunk )*
+    ;
+
+getGlobalChunk
+    : [R]getFunction
+    | [R]getDeclarationStatement
+    ;
+
+getExpressionUnit
+    : [R]getIdentifier
+    | [R]getIdentifier '(' $ ')'
+    | [R]getNumber
+    | '(' [R]getExpression $ ')'
+    ;
+
+getMultiplicativeExpression "an expression"
+    : [l]getExpressionUnit [CR]'*' $ [r]getMultiplicativeExpression 
+    | [l]getExpressionUnit [CR]'/' $ [r]getMultiplicativeExpression 
+    | [l]getExpressionUnit [CR]'%' $ [r]getMultiplicativeExpression 
+    | [R]getExpressionUnit
+    ;
+
+getAdditiveExpression "an expression"
+    : [l]getMultiplicativeExpression _ [CR]'+' $ _ [r]getAdditiveExpression 
+    | [l]getMultiplicativeExpression _ [CR]'-' $ _ [r]getAdditiveExpression 
+    | [R]getMultiplicativeExpression
+    ;
+
+getExpression "an expression"
+    : [R]getAdditiveExpression
+    ;
+
+getFunction
+    : [CR]getSpecifier _ [l]getIdentifier '(' $ ')' _ [r]getStatementList
+    ;
+
+getFunctionCall
+    : [R]getIdentifier '(' $ ')'
+    ;
+
+getAssign
+    : [r]getIdentifier _ [CR]'=' $ _ [l]getExpression
+    ;
+
+getDeclaration
+    : [R]getSpecifier _ [l]getAssign
+    ;
+
+getStatement "a statement"
+    : [R]getDeclarationStatement
+    | [R]getAssignStatement
+    | [R]getConditionStatement
+    | [R]getReturnStatement
+    ;
+
+getStatementList "a statement"
+    : '{' _ ( getStatement )* $ '}' _ 
+    | $ [R]getStatement
+    ;
+
+getConditionStatement
+    : [CR]<IF>    $ _ '(' [l]getExpression ')' _ [r]getStatementList
+    | [CR]<WHILE> $ _ '(' [l]getExpression ')' _ [r]getStatementList
+    ;
+
+getAssignStatement
+    : [R]getAssign $ ';' _
+    ;
+
+getDeclarationStatement
+    : [R]getDeclaration $ ';' _
+    ;
+
+getReturnStatement
+    : [CR]<RETURN> $ _ [l]getExpression ';' _
+    ;
