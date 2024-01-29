@@ -19,7 +19,7 @@ static ssize_t getFileSize(FILE* file)
 static char* putFileToBuffer(const size_t size, FILE* file)
 {
     // Size is in BYTES (not the amount of 'char's).
-    char* buffer = (char*) calloc(size + 1, 1);
+    char* buffer = (char*) calloc(size + 2, 1);
     if (buffer == nullptr)
         return nullptr;
 
@@ -31,6 +31,8 @@ static char* putFileToBuffer(const size_t size, FILE* file)
     }
 
     buffer[size] = '\0';
+    buffer[size + 1] = '\0';
+
     return buffer;
 }
 
