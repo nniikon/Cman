@@ -1,9 +1,9 @@
-SRCS = $(wildcard *.c)
-OBJS = $(patsubst %.c, $(BUILD_DIR)/%.o, $(SRCS))
+SRCS = $(wildcard *.cpp)
+OBJS = $(patsubst %.cpp, $(BUILD_DIR)/%.o, $(SRCS))
 
 all: $(BUILD_DIR) $(OBJS)
 
-$(BUILD_DIR)/%.o: %.c
+$(BUILD_DIR)/%.o: %.cpp
 	@$(GXX) $^ $(CFLAGS) -c -o $@
 
 $(BUILD_DIR):

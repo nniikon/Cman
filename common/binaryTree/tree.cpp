@@ -299,8 +299,7 @@ static void treePrintNodeToFile_recursive(TreeNode* node, FILE* file)
         const char* str = getTokenStr(&node->data, &len);
         fprintf(file, "$%.*s ", len, str); 
     }
-    else if(node->data.type == TOKEN_WHITE_SPACE || 
-            node->data.type == TOKEN_COMMENT)
+    else if(node->data.type == TOKEN_WHITE_SPACE)
     {
         assert(0);
     }

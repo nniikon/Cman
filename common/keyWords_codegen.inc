@@ -8,3 +8,5 @@ DEF_KEY_WORD(CONTIN, "continue")
 
 DEF_KEY_WORD(INT,    "int"     )
 DEF_KEY_WORD(RETURN, "return"  )
+
+DEF_KEY_WORD(PRINT, "print"    )
